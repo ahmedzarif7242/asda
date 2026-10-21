@@ -1,0 +1,94 @@
+{
+  "configVersion": 1,
+  "timestamp": 1792593633960,
+  "index": "/asda/index.html",
+  "assetGroups": [
+    {
+      "name": "app",
+      "installMode": "prefetch",
+      "updateMode": "prefetch",
+      "cacheQueryOptions": {
+        "ignoreVary": true
+      },
+      "urls": [
+        "/asda/favicon.ico",
+        "/asda/index.html",
+        "/asda/main-JBJUQB5E.js",
+        "/asda/manifest.webmanifest",
+        "/asda/styles-2S5PSCEN.css"
+      ],
+      "patterns": []
+    },
+    {
+      "name": "assets",
+      "installMode": "lazy",
+      "updateMode": "prefetch",
+      "cacheQueryOptions": {
+        "ignoreVary": true
+      },
+      "urls": [
+        "/asda/favicon.svg",
+        "/asda/icons/icon-128x128.png",
+        "/asda/icons/icon-144x144.png",
+        "/asda/icons/icon-152x152.png",
+        "/asda/icons/icon-192x192.png",
+        "/asda/icons/icon-384x384.png",
+        "/asda/icons/icon-512x512.png",
+        "/asda/icons/icon-72x72.png",
+        "/asda/icons/icon-96x96.png"
+      ],
+      "patterns": []
+    }
+  ],
+  "dataGroups": [
+    {
+      "name": "fonts",
+      "patterns": [
+        "https:\\/\\/fonts\\.googleapis\\.com\\/.*",
+        "https:\\/\\/fonts\\.gstatic\\.com\\/.*"
+      ],
+      "strategy": "performance",
+      "maxSize": 40,
+      "maxAge": 2592000000,
+      "cacheQueryOptions": {
+        "ignoreVary": true
+      },
+      "version": 1
+    }
+  ],
+  "hashTable": {
+    "/asda/favicon.ico": "9c39f434fe1261f68c5e3eefdf734630d99c5670",
+    "/asda/favicon.svg": "c8e0e9289862c5d54920a3d1f05ff2e0ccce935b",
+    "/asda/icons/icon-128x128.png": "729931e85ed62b2a6aafd95d1fafdf27693831d5",
+    "/asda/icons/icon-144x144.png": "301ed47d744bb0a06c82d887e662cc20b0e7fb9a",
+    "/asda/icons/icon-152x152.png": "814506a22fd0ebcce73cc7f0ca248f421f935efe",
+    "/asda/icons/icon-192x192.png": "4b1934f872dfb2ab9229098499643f86db2f8f10",
+    "/asda/icons/icon-384x384.png": "5edb2d9095e1c801772cb4d879044f9ad20b9b6d",
+    "/asda/icons/icon-512x512.png": "82e492b3273f83296d1c8daf02f786953d1e4e1e",
+    "/asda/icons/icon-72x72.png": "551fb96de4b19575a41f0720c32db4face5ed6ca",
+    "/asda/icons/icon-96x96.png": "da59d1a1d3ab44c304ef862f79c5799fb74737f4",
+    "/asda/index.html": "0de66503d9523bb6a6f8905953eaee9d78536e48",
+    "/asda/main-JBJUQB5E.js": "f54bfa548fce5efe1bd0d3fe4ff15d88b17f7c80",
+    "/asda/manifest.webmanifest": "a4ec07b6cfa0d6d5231949ae6f2ede6b50487000",
+    "/asda/styles-2S5PSCEN.css": "8df1cc93a98f07e2e1d573c57a093342f60e768e"
+  },
+  "navigationUrls": [
+    {
+      "positive": true,
+      "regex": "^\\/.*$"
+    },
+    {
+      "positive": false,
+      "regex": "^\\/(?:.+\\/)?[^/]*\\.[^/]*$"
+    },
+    {
+      "positive": false,
+      "regex": "^\\/(?:.+\\/)?[^/]*__[^/]*$"
+    },
+    {
+      "positive": false,
+      "regex": "^\\/(?:.+\\/)?[^/]*__[^/]*\\/.*$"
+    }
+  ],
+  "navigationRequestStrategy": "performance"
+}
