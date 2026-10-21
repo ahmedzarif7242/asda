@@ -6,6 +6,7 @@ import { RouteSpec } from '../model/routes';
 import { chance, clampLane, laneX, mps, pick, rand, randomLane, weighted } from './lanes';
 import { signTexture } from './textures';
 import { buildTraffic, VehicleParts } from './vehicles';
+import { BRAWL_LINES, buildPerson, gesture, hush, LIGHT_LINES, Person, relax, say } from './people';
 import { WorldService } from './world.service';
 
 interface Entity {
@@ -27,6 +28,20 @@ interface Entity {
   honked: boolean;
   /** A radio on, loud enough for the road to hear. Every tuktuk; some microbuses. */
   radio: boolean;
+  /** Stopped in the road for an argument. */
+  frozen: number;
+}
+
+interface Scene3 {
+  /** The one leaning out of the window, or standing in the road. */
+  driver: Person;
+  /** The player, out of their car, in a fight. */
+  player: Person | null;
+  entity: Entity;
+  left: number;
+  total: number;
+  line: number;
+  severe: boolean;
 }
 
 interface Hazard {
@@ -62,6 +77,8 @@ export interface TrafficOutcome {
   hits: number;
   /** Where the thing that hit the player was, so the car can be shoved the other way. */
   hitFromX: number;
+  /** Hard enough that someone is getting out of the car. */
+  severe: boolean;
   nearMisses: number;
   coins: number;
   nitroCans: number;
@@ -106,6 +123,9 @@ export class TrafficService {
   private difficulty!: DifficultySpec;
   private route!: RouteSpec;
   private levelBoost = 1;
+  private scene3: Scene3 | null = null;
+  private lastHit: Entity | null = null;
+  private clock = 0;
 
   private readonly coinGeo = new THREE.CylinderGeometry(0.45, 0.45, 0.12, 14);
   private readonly coinMat = new THREE.MeshStandardMaterial({ color: 0xffc83d, metalness: 0.8, roughness: 0.25, emissive: 0x8a5a00, emissiveIntensity: 0.6 });
@@ -129,6 +149,7 @@ export class TrafficService {
     this.spawnAcc = 0;
     this.hazardAcc = -4; // a clean first few seconds
     this.pickupAcc = 0;
+    this.endScene();
 
     // The road is never empty when you join it: a few cars already out there, spread ahead.
     for (let i = 0; i < 7; i++) this.spawnVehicle(-50 - i * 18);
@@ -139,7 +160,9 @@ export class TrafficService {
   }
 
   update(dt: number, player: PlayerShape, night: boolean): TrafficOutcome {
-    const out: TrafficOutcome = { hits: 0, hitFromX: 0, nearMisses: 0, coins: 0, nitroCans: 0, fines: 0, bumps: 0, potholes: 0, sand: 0, honks: [], radarLimit: RADAR_LIMIT };
+    this.clock += dt;
+    this.playScene(dt);
+    const out: TrafficOutcome = { hits: 0, hitFromX: 0, severe: false, nearMisses: 0, coins: 0, nitroCans: 0, fines: 0, bumps: 0, potholes: 0, sand: 0, honks: [], radarLimit: RADAR_LIMIT };
     const top = this.difficulty.maxSpeed * this.route.speed;
     const speedFactor = 0.35 + player.speed / top;
 
@@ -181,6 +204,9 @@ export class TrafficService {
         if (!player.invulnerable) {
           out.hits++;
           out.hitFromX = e.x;
+          // A nudge gets a shout; a real hit gets both of them out of the car.
+          out.severe = Math.abs(player.speed - e.speed) > 45 || Math.abs(e.x - player.x) < (e.parts.width / 2 + halfW) * 0.5;
+          this.lastHit = e;
         }
         // Shoved forward, so the car is not sitting inside the player's next frame too.
         e.shoved = 2;
@@ -245,6 +271,82 @@ export class TrafficService {
     return out;
   }
 
+  /**
+   * What happens after a hit: the driver you touched leans out and shouts, or — after a
+   * proper one — both of you are out in the road for a couple of seconds before anyone
+   * drives on. Returns how long the player is held for.
+   */
+  react(severe: boolean, playerX: number, playerLength: number): number {
+    const e = this.lastHit;
+    if (!e || this.scene3) return 0;
+    const driver = buildPerson();
+    if (!severe) {
+      // Out of the driver's window, on whichever side faces the player.
+      const side = e.x > playerX ? -1 : 1;
+      driver.group.position.set(side * (e.parts.width / 2 + 0.05), 0.25, -e.parts.length * 0.15);
+      driver.group.rotation.y = side > 0 ? Math.PI / 2 : -Math.PI / 2;
+      driver.group.scale.set(0.9, 0.9, 0.9);
+      e.parts.group.add(driver.group);
+      say(driver, pick(LIGHT_LINES), this.world.scene);
+      this.scene3 = { driver, player: null, entity: e, left: 1.8, total: 1.8, line: 0, severe };
+      return 0;
+    }
+    // Both out, in front of the player's bonnet — where the camera is looking.
+    e.frozen = 99;
+    e.shoved = 0;
+    e.speed = 0;
+    const standZ = -(playerLength / 2 + 1.6);
+    const dir = Math.sign(e.x - playerX) || 1;
+    driver.group.position.set(playerX + dir * 0.7, 0, standZ);
+    driver.group.rotation.y = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+    const player = buildPerson();
+    player.group.position.set(playerX - dir * 0.7, 0, standZ);
+    player.group.rotation.y = dir > 0 ? -Math.PI / 2 : Math.PI / 2;
+    this.world.scene.add(driver.group, player.group);
+    say(driver, BRAWL_LINES[0][0], this.world.scene);
+    this.scene3 = { driver, player, entity: e, left: 3.2, total: 3.2, line: 0, severe };
+    return 3.2;
+  }
+
+  private playScene(dt: number): void {
+    const s = this.scene3;
+    if (!s) return;
+    s.left -= dt;
+    const t = this.clock;
+    if (!s.severe) {
+      gesture(s.driver, t, false);
+      if (s.left <= 0) this.endScene();
+      return;
+    }
+    // The argument runs through its lines, each side in turn, and ends on the last pair.
+    const step = Math.min(BRAWL_LINES.length - 1, Math.floor(((s.total - s.left) / s.total) * BRAWL_LINES.length));
+    if (step !== s.line) {
+      s.line = step;
+      say(s.driver, BRAWL_LINES[step][0], this.world.scene);
+      if (s.player) say(s.player, BRAWL_LINES[step][1], this.world.scene);
+    }
+    const last = step === BRAWL_LINES.length - 1;
+    gesture(s.driver, t, !last);
+    if (s.player) gesture(s.player, t + 0.5, !last);
+    if (s.left <= 0) this.endScene();
+  }
+
+  private endScene(): void {
+    const s = this.scene3;
+    if (!s) return;
+    hush(s.driver);
+    relax(s.driver);
+    s.driver.group.parent?.remove(s.driver.group);
+    if (s.player) {
+      hush(s.player);
+      this.world.scene.remove(s.player.group);
+    }
+    s.entity.frozen = 0;
+    s.entity.shoved = 1.5;
+    s.entity.speed = s.entity.cruise;
+    this.scene3 = null;
+  }
+
   /** The nearest vehicles, for the sound to place. */
   audible(playerX: number): Audible[] {
     return this.entities
@@ -290,6 +392,11 @@ export class TrafficService {
       }
     }
 
+    if (e.frozen > 0) {
+      e.frozen -= dt;
+      e.speed = Math.max(0, e.speed - 200 * dt);
+      return;
+    }
     if (e.shoved > 0) {
       e.shoved -= dt;
       return;
@@ -346,6 +453,7 @@ export class TrafficService {
       kind, parts, lane, targetLane: lane, x: laneX(lane, this.lanes), z, prevZ: z,
       speed: cruise, cruise, moodTimer: rand(1, 3), braking: 0, shoved: 0, hit: false, passed: false, honked: false,
       radio: kind === 'tuktuk' || (kind === 'microbus' && chance(0.4)),
+      frozen: 0,
     });
   }
 

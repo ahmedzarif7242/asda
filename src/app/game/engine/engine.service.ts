@@ -48,6 +48,8 @@ export class EngineService {
   private last = 0;
   private idleSpeed = 0;
   private onRunEnded: (() => void) | null = null;
+  /** Seconds the player is out of the car arguing; no driving until it is over. */
+  private brawlLeft = 0;
   private readonly dust = new THREE.Color(0xd8c59a);
   private readonly spark = new THREE.Color(0xffb347);
   private readonly flame = new THREE.Color(0x4de3ff);
@@ -118,6 +120,7 @@ export class EngineService {
   /** Called when a run starts; the facade owns the store transitions. */
   beginRun(onEnded: () => void): void {
     this.onRunEnded = onEnded;
+    this.brawlLeft = 0;
     if (this.world.route.id !== this.store.route().id) this.world.setRoute(this.store.route());
     this.player.reset(this.store.car(), this.store.difficulty(), this.store.route());
     this.traffic.reset(this.store.difficulty(), this.store.route());
@@ -164,6 +167,18 @@ export class EngineService {
     }
 
     const night = this.world.isNight;
+    if (this.brawlLeft > 0) {
+      // Everyone is out of the car. The car stays where it is and so does the world.
+      this.brawlLeft -= dt;
+      if (this.brawlLeft <= 0) this.player.invulnerable = 1.5;
+      this.player.speed = Math.max(0, this.player.speed - 300 * dt);
+      this.player.update(dt, 0, false, true, night);
+      this.store.speed.set(0);
+      this.traffic.update(dt, { x: this.player.x, width: this.player.spec.width, length: this.player.spec.length, speed: 0, invulnerable: true }, night);
+      this.particles.update(dt, 0);
+      this.audio.engine(0, false, this.traffic.audible(this.player.x));
+      return;
+    }
     this.player.update(dt, this.input.steer(), this.input.accelerate(), this.input.brake(), night);
     if (!this.player.nitroActive && this.store.nitroActive()) this.store.nitroActive.set(false);
     this.store.wheel.set(Math.round(THREE.MathUtils.clamp(this.player.heading / 0.5, -1, 1) * 100) / 100);
@@ -262,8 +277,16 @@ export class EngineService {
       this.store.lives.update((l) => l - 1);
       this.store.bestClean.update((b) => Math.max(b, this.store.cleanStreak()));
       this.store.cleanStreak.set(0);
-      this.store.push('hit', 'خبطة!');
+      this.store.push('hit', out.severe ? 'خبطة جامدة — نزلوا يتخانقوا!' : 'خبطة!');
       this.audio.crash();
+      const held = this.traffic.react(out.severe, this.player.x, this.player.spec.length);
+      if (held > 0) {
+        this.brawlLeft = held;
+        // The car sits still and visible while its driver is out of it.
+        this.player.invulnerable = 0;
+        this.player.shake = 0;
+      }
+      setTimeout(() => this.audio.hornOf('car', out.hitFromX - this.player.x), held > 0 ? 600 : 250);
       this.particles.emit(30, this.player.x, 0.8, -this.player.spec.length / 2, this.spark, 2, 6, 2, 0.7);
       if (this.store.lives() <= 0) {
         this.endRun();
