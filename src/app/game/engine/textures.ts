@@ -45,11 +45,11 @@ export function roadTexture(laneCount: number, worn = 0.5): THREE.CanvasTexture 
     g.stroke();
   }
   // Edge lines.
-  g.fillStyle = '#e8c24a';
+  g.fillStyle = 'rgba(214,180,70,.85)';
   g.fillRect(6, 0, 6, h);
   g.fillRect(w - 12, 0, 6, h);
-  // Lane dashes.
-  g.fillStyle = '#f2f2f2';
+  // Lane dashes: worn paint, not fresh.
+  g.fillStyle = 'rgba(225,225,220,.82)';
   for (let l = 1; l < laneCount; l++) {
     const x = Math.round(l * laneW) - 3;
     for (let y = 0; y < h; y += 96) g.fillRect(x, y, 6, 48);
@@ -60,6 +60,42 @@ export function roadTexture(laneCount: number, worn = 0.5): THREE.CanvasTexture 
   t.wrapT = THREE.RepeatWrapping;
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 8;
+  return t;
+}
+
+/**
+ * A normal map of asphalt grain, so the road catches the sun and the headlights the way a
+ * rough surface does instead of a flat plane.
+ */
+export function asphaltNormal(): THREE.CanvasTexture {
+  const n = 256;
+  const c = document.createElement('canvas');
+  c.width = n;
+  c.height = n;
+  const g = c.getContext('2d')!;
+  const img = g.createImageData(n, n);
+  const h = new Float32Array(n * n);
+  for (let i = 0; i < h.length; i++) h[i] = Math.random();
+  // Blur once so the grain has a size.
+  const s = new Float32Array(n * n);
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    let a = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) a += h[((y + dy + n) % n) * n + ((x + dx + n) % n)];
+    s[y * n + x] = a / 9;
+  }
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const l = s[y * n + ((x - 1 + n) % n)], r = s[y * n + ((x + 1) % n)];
+    const u = s[((y - 1 + n) % n) * n + x], d = s[((y + 1) % n) * n + x];
+    const i = (y * n + x) * 4;
+    img.data[i] = 128 + (l - r) * 220;
+    img.data[i + 1] = 128 + (u - d) * 220;
+    img.data[i + 2] = 255;
+    img.data[i + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = THREE.RepeatWrapping;
+  t.wrapT = THREE.RepeatWrapping;
   return t;
 }
 
@@ -112,6 +148,19 @@ export function buildingTexture(finished: boolean, floors: number, night: boolea
     for (let f = 0; f < floors; f++) g.fillRect(0, f * 64, w, 6);
     for (let x = 0; x < w; x += 64) g.fillRect(x, 0, 8, h);
   }
+
+  // The street-level band is darker: dust, exhaust, the shade of the building itself.
+  const shade = g.createLinearGradient(0, h, 0, h - 90);
+  shade.addColorStop(0, 'rgba(0,0,0,.42)');
+  shade.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = shade;
+  g.fillRect(0, h - 90, w, 90);
+  // And the top catches the sun.
+  const sun = g.createLinearGradient(0, 0, 0, 60);
+  sun.addColorStop(0, 'rgba(255,250,230,.14)');
+  sun.addColorStop(1, 'rgba(255,250,230,0)');
+  g.fillStyle = sun;
+  g.fillRect(0, 0, w, 60);
 
   // Windows: some lit, some dark, some with an air-conditioner box under them.
   for (let f = 0; f < floors; f++) {

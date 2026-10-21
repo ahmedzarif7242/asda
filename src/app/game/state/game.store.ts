@@ -59,6 +59,16 @@ export class GameStore {
   readonly muted = signal(false);
   /** Off the asphalt, on the shoulder. */
   readonly offRoad = signal(false);
+  /** Where the wheel is, -1..1, for the HUD's wheel to turn with. */
+  readonly wheel = signal(0);
+  readonly braking = signal(false);
+  readonly throttle = signal(false);
+
+  /** Which gear the engine is in, from the speed — the same five the sound climbs through. */
+  readonly gear = computed(() => {
+    const s = this.speed();
+    return s < 1 ? 'N' : s < 25 ? '1' : s < 50 ? '2' : s < 85 ? '3' : s < 125 ? '4' : '5';
+  });
   readonly quality = signal<'high' | 'low'>('high');
 
   readonly score = computed(() => {

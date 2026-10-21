@@ -4,6 +4,11 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+import { GradeShader } from './grade';
 
 import { AudioService } from '../audio/audio.service';
 import { InputService } from '../input/input.service';
@@ -37,6 +42,7 @@ export class EngineService {
   private renderer: THREE.WebGLRenderer | null = null;
   private composer: EffectComposer | null = null;
   private bloom: UnrealBloomPass | null = null;
+  private grade: ShaderPass | null = null;
   private readonly camera = new THREE.PerspectiveCamera(62, 1, 0.1, 500);
   private readonly particles = new Particles();
   private last = 0;
@@ -53,7 +59,14 @@ export class EngineService {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMappingExposure = 0.88;
+
+    // A lit room, baked into an environment map: it is what every reflection on every car is
+    // a reflection *of*. Without it clearcoat paint is just a colour.
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.world.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.world.scene.environmentIntensity = 0.3;
+    pmrem.dispose();
 
     // A phone with a dense screen gets the plain renderer; bloom on top of that is a fan.
     const mobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
@@ -68,12 +81,17 @@ export class EngineService {
 
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.world.scene, this.camera));
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.45, 0.5, 0.86);
+    // Bloom only for what is actually bright — lamps and lights at night. In daylight the
+    // threshold sits above white paint, or every white car glows like a lamp.
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.2, 0.4, 0.98);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
+    this.grade = new ShaderPass(GradeShader);
+    this.composer.addPass(this.grade);
+    this.composer.addPass(new SMAAPass());
 
-    this.camera.position.set(0, 4.4, 8.5);
-    this.camera.lookAt(0, 0.8, -14);
+    this.camera.position.set(0, 2.9, 7.2);
+    this.camera.lookAt(0, 1.1, -16);
     this.resize();
     window.addEventListener('resize', () => this.resize());
 
@@ -148,6 +166,9 @@ export class EngineService {
     const night = this.world.isNight;
     this.player.update(dt, this.input.steer(), this.input.accelerate(), this.input.brake(), night);
     if (!this.player.nitroActive && this.store.nitroActive()) this.store.nitroActive.set(false);
+    this.store.wheel.set(Math.round(THREE.MathUtils.clamp(this.player.heading / 0.5, -1, 1) * 100) / 100);
+    if (this.store.braking() !== this.input.brake()) this.store.braking.set(this.input.brake());
+    if (this.store.throttle() !== this.input.accelerate()) this.store.throttle.set(this.input.accelerate());
     if (this.player.offRoad !== this.store.offRoad()) {
       this.store.offRoad.set(this.player.offRoad);
       this.audio.gravel(this.player.offRoad);
@@ -189,7 +210,11 @@ export class EngineService {
     const phase = (this.store.dayPhase() + dt / DAY_SECONDS) % 1;
     this.store.dayPhase.set(phase);
     this.world.setDayPhase(phase);
-    if (this.bloom) this.bloom.strength = night ? 0.7 : 0.35;
+    if (this.bloom) {
+      this.bloom.strength = night ? 0.65 : 0.12;
+      this.bloom.threshold = night ? 0.8 : 0.98;
+    }
+    if (this.grade) this.grade.uniforms['time'].value = performance.now() / 1000;
 
     const starsBefore = this.store.stars();
 
@@ -272,18 +297,19 @@ export class EngineService {
     this.onRunEnded?.();
   }
 
+  /** A chase camera: low, behind, a little late, leaning into the turns. */
   private placeCamera(dt: number): void {
-    const targetX = this.player.x * 0.45;
-    this.camera.position.x += (targetX - this.camera.position.x) * Math.min(1, dt * 5);
-    const speedPull = (this.player.speed / 200) * 1.4;
-    this.camera.position.z += (8.5 + speedPull - this.camera.position.z) * Math.min(1, dt * 2);
+    const targetX = this.player.x * 0.6 - this.player.heading * 1.2;
+    this.camera.position.x += (targetX - this.camera.position.x) * Math.min(1, dt * 4);
+    const speedPull = (this.player.speed / 200) * 1.6;
+    this.camera.position.z += (7.2 + speedPull - this.camera.position.z) * Math.min(1, dt * 2);
     const shake = this.player.shake;
     const sx = (Math.random() - 0.5) * shake * 0.5;
     const sy = (Math.random() - 0.5) * shake * 0.3;
-    this.camera.position.y = 4.4 + sy;
-    this.camera.lookAt(this.player.x * 0.45 + sx + this.player.heading * 2, 0.8, -14);
-    this.camera.rotation.z += this.player.heading * 0.04;
-    this.camera.fov = 62 + (this.player.nitroActive ? 10 : 0) + this.player.speed * 0.04;
+    this.camera.position.y = 2.9 + sy + this.player.speed * 0.002;
+    this.camera.lookAt(this.player.x * 0.6 + sx + this.player.heading * 3, 1.1, -16);
+    this.camera.rotation.z += this.player.heading * 0.05;
+    this.camera.fov = 66 + (this.player.nitroActive ? 10 : 0) + this.player.speed * 0.05;
     this.camera.updateProjectionMatrix();
   }
 

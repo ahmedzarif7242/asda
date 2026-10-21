@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { LANE_WIDTH } from '../model/game.types';
 import { Landmark, RouteSpec, ROUTES } from '../model/routes';
 import { chance, pick, rand } from './lanes';
-import { billboardTexture, buildingTexture, latticeTexture, roadTexture, seaTexture, shoulderTexture, signTexture } from './textures';
+import { asphaltNormal, billboardTexture, buildingTexture, latticeTexture, roadTexture, seaTexture, shoulderTexture, signTexture } from './textures';
 
 const SPAWN_Z = -170;
 const DESPAWN_Z = 30;
@@ -41,6 +41,7 @@ export class WorldService {
   halfRoad = (4 * LANE_WIDTH) / 2;
 
   private road: THREE.Mesh | null = null;
+  private readonly asphalt = asphaltNormal();
   private roadTex: THREE.Texture | null = null;
   private shoulders: THREE.Mesh[] = [];
   private kerbs: THREE.Mesh[] = [];
@@ -54,6 +55,8 @@ export class WorldService {
   private readonly spinners: Spinner[] = [];
   private bridges: THREE.Group[] = [];
   private stars: THREE.Points | null = null;
+  private dome: THREE.Mesh | null = null;
+  private domeMat: THREE.ShaderMaterial | null = null;
   private sunDisc: THREE.Mesh | null = null;
   private moon: THREE.Mesh | null = null;
   private built = false;
@@ -69,6 +72,35 @@ export class WorldService {
 
     this.scene.fog = new THREE.Fog(0x9ec9ff, 70, 210);
     this.scene.background = this.dayColor.clone();
+
+    // The sky is a dome with a gradient from the zenith to the horizon and a glow where the
+    // sun sits, instead of one flat colour behind everything.
+    this.domeMat = new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      depthWrite: false,
+      fog: false,
+      uniforms: {
+        top: { value: new THREE.Color(0x4f8fd6) },
+        horizon: { value: new THREE.Color(0xd9ecff) },
+        sunDir: { value: new THREE.Vector3(0.3, 0.6, -0.7) },
+        sunColor: { value: new THREE.Color(0xfff1c4) },
+        night: { value: 0 },
+      },
+      vertexShader: `varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+      fragmentShader: `
+        uniform vec3 top; uniform vec3 horizon; uniform vec3 sunDir; uniform vec3 sunColor; uniform float night;
+        varying vec3 vDir;
+        void main(){
+          float h = clamp(vDir.y, 0.0, 1.0);
+          vec3 c = mix(horizon, top, pow(h, 0.6));
+          float s = max(dot(normalize(vDir), normalize(sunDir)), 0.0);
+          c += sunColor * (pow(s, 48.0) * 0.9 + pow(s, 6.0) * 0.18) * (1.0 - night);
+          gl_FragColor = vec4(c, 1.0);
+        }`,
+    });
+    this.dome = new THREE.Mesh(new THREE.SphereGeometry(420, 24, 12), this.domeMat);
+    this.dome.position.set(0, -20, -120);
+    this.scene.add(this.dome);
 
     this.sun.position.set(30, 60, -20);
     this.sun.castShadow = true;
@@ -126,9 +158,10 @@ export class WorldService {
     const roadWidth = this.halfRoad * 2;
     this.roadTex = roadTexture(route.lanes, route.scenery === 'desert' || route.scenery === 'coast' ? 0.2 : 0.8);
     this.roadTex.repeat.set(1, ROAD_LENGTH / 15);
+    this.asphalt.repeat.set(4, ROAD_LENGTH / 4);
     this.road = new THREE.Mesh(
       new THREE.PlaneGeometry(roadWidth + 0.4, ROAD_LENGTH),
-      new THREE.MeshStandardMaterial({ map: this.roadTex, roughness: 0.92, metalness: 0.05 }),
+      new THREE.MeshStandardMaterial({ map: this.roadTex, normalMap: this.asphalt, normalScale: new THREE.Vector2(0.35, 0.35), roughness: 0.82, metalness: 0.1, envMapIntensity: 0.3 }),
     );
     this.road.rotation.x = -Math.PI / 2;
     this.road.position.set(0, 0, -200);
@@ -158,7 +191,7 @@ export class WorldService {
 
     this.ground = new THREE.Mesh(
       new THREE.PlaneGeometry(500, ROAD_LENGTH + 200),
-      new THREE.MeshStandardMaterial({ color: route.ground, roughness: 1 }),
+      new THREE.MeshStandardMaterial({ color: route.ground, roughness: 1, envMapIntensity: 0.15 }),
     );
     this.ground.rotation.x = -Math.PI / 2;
     this.ground.position.set(0, -0.05, -200);
@@ -260,6 +293,15 @@ export class WorldService {
     const sky = target.clone().lerp(haze, t < 0.25 || t > 0.8 ? 0.35 : 0);
     (this.scene.background as THREE.Color).copy(sky);
     this.scene.fog!.color.copy(sky);
+    if (this.domeMat) {
+      const u = this.domeMat.uniforms;
+      (u['horizon'].value as THREE.Color).copy(sky);
+      (u['top'].value as THREE.Color).copy(sky).multiplyScalar(0.55).lerp(new THREE.Color(0x3b74c8), t < 0.22 || t > 0.82 ? 0.5 : 0);
+      u['night'].value = t > 0.3 && t < 0.75 ? 1 : 0;
+      const angle = t * Math.PI * 2;
+      (u['sunDir'].value as THREE.Vector3).set(Math.sin(angle) * 0.5, Math.cos(angle) * 0.6 + 0.1, -0.7).normalize();
+      (u['sunColor'].value as THREE.Color).set(t > 0.12 && t < 0.3 ? 0xffb070 : 0xfff1c4);
+    }
 
     const night = t > 0.32 && t < 0.72 ? 1 : t > 0.22 && t < 0.82 ? 0.5 : 0;
     this.night = night === 1;
@@ -328,7 +370,28 @@ export class WorldService {
       const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [plain, mat, plain, plain, plain, mat]);
       b.position.set(x + side * (w / 2), h / 2, 0);
       b.castShadow = true;
+      b.receiveShadow = true;
       group.add(b);
+      // Balconies on the road face, one per floor, with a rail.
+      const slab = new THREE.MeshStandardMaterial({ color: finished ? 0xd9d2c0 : 0xb0a899, roughness: 0.95 });
+      const rail = new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.6, metalness: 0.4 });
+      for (let f = 1; f < floors; f++) {
+        if (Math.random() > 0.65) continue;
+        const bx = x + side * 0.5;
+        const by = f * 3 + 0.1;
+        const bz = (Math.random() - 0.5) * (d - 3);
+        const balcony = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.18, 2.4), slab);
+        balcony.position.set(bx, by, bz);
+        balcony.castShadow = true;
+        const r = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.9, 2.4), rail);
+        r.position.set(bx - side * 0.58, by + 0.5, bz);
+        group.add(balcony, r);
+        if (Math.random() > 0.6) {
+          const ac = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.45, 0.7), new THREE.MeshStandardMaterial({ color: 0xd8d8d8, roughness: 0.7 }));
+          ac.position.set(x + side * 0.3, by + 1.9, bz + 1.6);
+          group.add(ac);
+        }
+      }
       const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 1.2, 10), new THREE.MeshStandardMaterial({ color: 0x2b2b2b }));
       tank.position.set(x + side * (w / 2) + (Math.random() - 0.5) * 2, h + 0.6, (Math.random() - 0.5) * 3);
       group.add(tank);
