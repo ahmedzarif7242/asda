@@ -2,8 +2,8 @@ import { Injectable, signal } from '@angular/core';
 
 import { RunSummary } from '../model/game.types';
 
-const KEY = 'zahma.runs.v1';
-const MAX_RUNS = 50;
+const KEY = 'zahma.runs.v2';
+const MAX_RUNS = 80;
 
 /**
  * The best runs, kept on the device.
@@ -16,18 +16,16 @@ const MAX_RUNS = 50;
 export class ScoresService {
   readonly runs = signal<RunSummary[]>(this.load());
 
-  best(mode: RunSummary['mode'], difficulty: RunSummary['difficulty']): number {
+  best(mode: RunSummary['mode'], difficulty: RunSummary['difficulty'], route: string): number {
     return this.runs()
-      .filter((r) => r.mode === mode && r.difficulty === difficulty)
+      .filter((r) => r.mode === mode && r.difficulty === difficulty && r.route === route)
       .reduce((top, r) => Math.max(top, r.score), 0);
   }
 
   /** Records a run and says whether it is the new best of its kind. */
   record(run: RunSummary): boolean {
-    const previous = this.best(run.mode, run.difficulty);
-    const runs = [run, ...this.runs()]
-      .sort((a, b) => b.score - a.score)
-      .slice(0, MAX_RUNS);
+    const previous = this.best(run.mode, run.difficulty, run.route);
+    const runs = [run, ...this.runs()].sort((a, b) => b.score - a.score).slice(0, MAX_RUNS);
     this.runs.set(runs);
     try {
       localStorage.setItem(KEY, JSON.stringify(runs));

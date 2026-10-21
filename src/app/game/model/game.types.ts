@@ -1,10 +1,10 @@
 /** The screens the game moves between. */
-export type GameStatus = 'menu' | 'playing' | 'paused' | 'over';
+export type GameStatus = 'menu' | 'map' | 'playing' | 'paused' | 'over';
 
 /** مشوار: drive until the car is done. سابق الزمن: ninety seconds, make them count. */
 export type GameMode = 'endless' | 'timed';
 
-/** How much of Cairo is on the road with you. */
+/** How much of Egypt is on the road with you. */
 export type Difficulty = 'calm' | 'busy' | 'chaos';
 
 export interface DifficultySpec {
@@ -32,23 +32,26 @@ export interface CarSpec {
   width: number;
   length: number;
   height: number;
-  /** Lane-change speed, lanes per second. */
-  agility: number;
+  /** How quickly the nose turns, and how well the tyres hold the road. */
+  steering: number;
+  grip: number;
   /** How many hits it takes. */
   lives: number;
   /** Top-speed factor against the difficulty's max. */
   topSpeed: number;
+  /** Coins to own it. 0 = yours from the start. */
+  price: number;
 }
 
 /** Everything that drives beside you, or sits in the road waiting for you. */
-export type TrafficKind = 'car' | 'microbus' | 'tuktuk' | 'truck';
-export type HazardKind = 'bump' | 'pothole' | 'cones' | 'radar';
+export type TrafficKind = 'car' | 'microbus' | 'tuktuk' | 'truck' | 'bus' | 'tractor';
+export type HazardKind = 'bump' | 'pothole' | 'cones' | 'radar' | 'sand';
 export type PickupKind = 'coin' | 'nitro';
 
 /** One thing that happened on the road, for the HUD to flash. */
 export interface RoadEvent {
   id: number;
-  kind: 'nearMiss' | 'coin' | 'fine' | 'hit' | 'nitro' | 'bump' | 'level';
+  kind: 'nearMiss' | 'coin' | 'fine' | 'hit' | 'nitro' | 'bump' | 'level' | 'mission';
   text: string;
   delta?: number;
 }
@@ -56,12 +59,14 @@ export interface RoadEvent {
 export interface RunSummary {
   mode: GameMode;
   difficulty: Difficulty;
+  route: string;
   car: string;
   score: number;
   distance: number;
   coins: number;
   nearMisses: number;
   topSpeed: number;
+  stars: number;
   at: string;
 }
 
@@ -79,7 +84,7 @@ export const DIFFICULTIES: readonly DifficultySpec[] = [
   {
     id: 'busy',
     name: 'زحمة',
-    tagline: 'الساعة ٣ العصر على الدايري',
+    tagline: 'الساعة ٣ العصر',
     spawnRate: 0.95,
     minSpeed: 60,
     maxSpeed: 160,
@@ -107,9 +112,11 @@ export const CARS: readonly CarSpec[] = [
     width: 1.5,
     length: 3.4,
     height: 1.25,
-    agility: 3.4,
+    steering: 1.35,
+    grip: 0.9,
     lives: 3,
-    topSpeed: 0.92,
+    topSpeed: 0.9,
+    price: 0,
   },
   {
     id: 'lancer',
@@ -119,9 +126,11 @@ export const CARS: readonly CarSpec[] = [
     width: 1.7,
     length: 4.4,
     height: 1.3,
-    agility: 2.6,
+    steering: 1.1,
+    grip: 1.05,
     lives: 3,
     topSpeed: 1,
+    price: 150,
   },
   {
     id: 'microbus',
@@ -131,9 +140,25 @@ export const CARS: readonly CarSpec[] = [
     width: 2,
     length: 5,
     height: 2,
-    agility: 1.9,
+    steering: 0.8,
+    grip: 0.8,
     lives: 4,
     topSpeed: 0.85,
+    price: 300,
+  },
+  {
+    id: 'jeep',
+    name: 'جيب',
+    tagline: 'الصحراوي بيتاعه. الرمل مش بيهزّه.',
+    color: 0x33691e,
+    width: 1.95,
+    length: 4.7,
+    height: 1.9,
+    steering: 1,
+    grip: 1.2,
+    lives: 4,
+    topSpeed: 0.95,
+    price: 500,
   },
 ];
 

@@ -11,6 +11,7 @@ import {
   RoadEvent,
   TIMED_SECONDS,
 } from '../model/game.types';
+import { Objective, RouteSpec, routeById } from '../model/routes';
 
 /**
  * Everything the screens show, as signals.
@@ -25,6 +26,7 @@ export class GameStore {
   readonly mode = signal<GameMode>('endless');
   readonly difficultyId = signal<Difficulty>('busy');
   readonly carId = signal<string>('fiat128');
+  readonly routeId = signal<string>('ring');
 
   readonly difficulty = computed<DifficultySpec>(
     () => DIFFICULTIES.find((d) => d.id === this.difficultyId()) ?? DIFFICULTIES[1],
@@ -32,6 +34,7 @@ export class GameStore {
   readonly car = computed<CarSpec>(
     () => CARS.find((c) => c.id === this.carId()) ?? CARS[0],
   );
+  readonly route = computed<RouteSpec>(() => routeById(this.routeId()));
 
   // ---- the run ----
   /** km/h */
@@ -47,18 +50,29 @@ export class GameStore {
   readonly nitroActive = signal(false);
   readonly timeLeft = signal(TIMED_SECONDS);
   readonly topSpeed = signal(0);
+  /** Metres driven since the last hit — the "clean run" objective. */
+  readonly cleanStreak = signal(0);
+  readonly bestClean = signal(0);
   /** 0 = noon, 0.5 = midnight. Drives the sky and the HUD's tint. */
   readonly dayPhase = signal(0.04);
   readonly level = signal(1);
   readonly muted = signal(false);
+  /** Off the asphalt, on the shoulder. */
+  readonly offRoad = signal(false);
+  readonly quality = signal<'high' | 'low'>('high');
 
   readonly score = computed(() => {
-    const base =
-      this.distance() + this.coins() * 10 + this.nearMisses() * 50;
-    return Math.round(base * this.difficulty().multiplier);
+    const base = this.distance() + this.coins() * 10 + this.nearMisses() * 50;
+    return Math.round(base * this.difficulty().multiplier * (0.8 + this.route().speed * 0.2));
   });
 
   readonly distanceKm = computed(() => (this.distance() / 1000).toFixed(2));
+
+  /** The route's three objectives, with whether each is met right now. */
+  readonly objectives = computed(() =>
+    this.route().objectives.map((o) => ({ ...o, done: this.isMet(o), progress: this.progressOf(o) })),
+  );
+  readonly stars = computed(() => this.objectives().filter((o) => o.done).length);
 
   /** The last few things that happened, newest first, for the HUD to flash. */
   readonly events = signal<RoadEvent[]>([]);
@@ -81,7 +95,11 @@ export class GameStore {
     this.nitroActive.set(false);
     this.timeLeft.set(TIMED_SECONDS);
     this.topSpeed.set(0);
+    this.cleanStreak.set(0);
+    this.bestClean.set(0);
     this.level.set(1);
+    this.offRoad.set(false);
+    this.dayPhase.set(this.route().startPhase);
     this.events.set([]);
     this.status.set('playing');
   }
@@ -102,6 +120,10 @@ export class GameStore {
     this.status.set('menu');
   }
 
+  toMap(): void {
+    this.status.set('map');
+  }
+
   push(kind: RoadEvent['kind'], text: string, delta?: number): void {
     const event: RoadEvent = { id: ++this.eventId, kind, text, delta };
     this.events.update((list) => [event, ...list].slice(0, 4));
@@ -109,5 +131,24 @@ export class GameStore {
     setTimeout(() => {
       this.events.update((list) => list.filter((e) => e.id !== event.id));
     }, 1800);
+  }
+
+  private progressOf(o: Objective): number {
+    switch (o.kind) {
+      case 'distance':
+        return this.distance();
+      case 'nearMiss':
+        return this.nearMisses();
+      case 'coins':
+        return this.coins();
+      case 'clean':
+        return Math.max(this.bestClean(), this.cleanStreak());
+      case 'speed':
+        return this.topSpeed();
+    }
+  }
+
+  private isMet(o: Objective): boolean {
+    return this.progressOf(o) >= o.target;
   }
 }
