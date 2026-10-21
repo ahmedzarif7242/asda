@@ -1,4 +1,7 @@
 # Push to main = the game is live on GitHub Pages.
+#
+# The build is pushed to a `gh-pages` branch, which GitHub publishes on its own the moment
+# the branch exists — no Pages setting has to be found and switched first.
 name: Deploy
 
 on:
@@ -7,23 +10,17 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   group: pages
   cancel-in-progress: true
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # Turns Pages on for the repository the first time, so nobody has to find the setting.
-      - uses: actions/configure-pages@v5
-        with:
-          enablement: true
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -31,16 +28,10 @@ jobs:
       - run: npm ci
       # The repository name is the path the site is served under.
       - run: npx ng build --base-href "/${{ github.event.repository.name }}/"
-      - uses: actions/upload-pages-artifact@v3
+      # Pages serves 404.html for any unknown path; the app is one page, so it is the page.
+      - run: cp dist/asda/browser/index.html dist/asda/browser/404.html
+      - uses: peaceiris/actions-gh-pages@v4
         with:
-          path: dist/asda/browser
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: dist/asda/browser
+          force_orphan: true
